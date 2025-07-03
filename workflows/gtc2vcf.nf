@@ -25,14 +25,16 @@ workflow {
 
     if(params.command == "gtc") {
         IDAT_CH = Channel.fromFilePairs(params.idats) { file -> file.simpleName.split("_")[0,1] }
-          .map { it -> it[1] }
-          .collect()
 
+        // manifest files
         EGT_CH = EGT(Channel.fromPath(params.egt))
         BPM_CH = Channel.fromPath(params.bpm)
 
-        GTC_CH = GTC(IDAT_CH, EGT_CH, BPM_CH)
-          .view()
+        IDAT_MANIFEST_CH = IDAT_CH
+          .combine(EGT_CH)
+          .combine(BPM_CH)
+
+        GTC_CH = GTC(IDAT_MANIFEST_CH)
         
     }
 }
@@ -78,12 +80,10 @@ process EGT {
 process GTC {
 
     cpus = 1
-    memory = 4.Gb
+    memory = 1.Gb
 
     input:
-    path(idats)
-    path(egt)
-    path(bpm)
+    tuple val(sentrix), path(idats), path(egt), path(bpm)
 
     output:
     tuple path(egt), path(bpm), path("*.gtc")
