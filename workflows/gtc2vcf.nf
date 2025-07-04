@@ -2,14 +2,18 @@
 // https://github.com/freeseek/gtc2vcf
 
 params.command = "identify"
+params.dataset = "Dataset"
 params.idats = "data/idats/*.idat"
-params.egt = "https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/InfiniumGlobalScreeningArrayv4.0ClusterFile-egt.zip"
-params.bpm = "https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/GSA-48v4-0_20085471_D2.bpm"
+params.egt = "data/manifest/GSA.egt"
+params.bpm = "data/manifest/GSA.bpm"
+params.csv = "data/manifest/GSA.csv"
 
-params.gtc = "data/gtc/*.gtc"
-params.fasta = "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz"
+params.gtc = "data/gtc/GSA/*.gtc"
+params.fasta = "data/fasta/ref.fasta"
 
 workflow {
+
+    
     if(params.command == "identify") {
         IDAT_CH = Channel.fromFilePairs(params.idats) { file -> file.simpleName.split("_")[0,1] }
 
@@ -26,11 +30,11 @@ workflow {
     }
 
     if(params.command == "gtc") {
-        IDAT_CH = Channel.fromFilePairs(params.idats) { file -> file.simpleName.split("_")[0,1] }
 
-        // manifest files
-        EGT_CH = EGT(Channel.fromPath(params.egt))
-        BPM_CH = Channel.fromPath(params.bpm)
+        EGT_CH = Channel.fromPath(params.egt, checkIfExists: true)
+        BPM_CH = Channel.fromPath(params.bpm, checkIfExists: true)
+
+        IDAT_CH = Channel.fromFilePairs(params.idats) { file -> file.simpleName.split("_")[0,1] }
 
         IDAT_MANIFEST_CH = IDAT_CH
           .combine(EGT_CH)
@@ -42,13 +46,28 @@ workflow {
 
     if(params.command == "vcf") {
 
-      GTC_CH = Channel.fromPath(params.gtc)
+      DATASET_CH = Channel.of(params.dataset)
 
-      FASTA_GZ_CH = Channel.fromPath(params.fasta)
+      GTC_CH = Channel.fromPath(params.gtc)
+        .collect()
+        .map { it -> [it] }
+
+      FASTA_GZ_CH = Channel.fromPath(params.fasta, checkIfExists: true)
 
       FASTA_CH = FASTA(FASTA_GZ_CH)
-        .view()
 
+      EGT_CH = Channel.fromPath(params.egt, checkIfExists: true)
+      BPM_CH = Channel.fromPath(params.bpm, checkIfExists: true)
+      CSV_CH = Channel.fromPath(params.csv, checkIfExists: true)
+
+      GTC_FASTA_CH = DATASET_CH
+        .combine(GTC_CH)
+        .combine(EGT_CH)
+        .combine(BPM_CH)
+        .combine(CSV_CH)
+        .combine(FASTA_CH)
+
+      VCF_CH = VCF(GTC_FASTA_CH)
 
     }
 }
@@ -72,28 +91,10 @@ process IDENTIFY {
     """
 }
 
-// unzip EGT
-process EGT {
-
-    cpus = 1
-    memory = 1.Gb
-
-    input:
-    path(zip)
-
-    output:
-    path("*.egt")
-
-    script:
-    """
-    unzip ${zip}
-    """
-}
-
 // idat2gtc
 process GTC {
 
-    publishDir "data/gtc"
+    publishDir "data/gtc/${bpm.simpleName}"
 
     cpus = 1
     memory = 1.Gb
@@ -102,7 +103,7 @@ process GTC {
     tuple val(sentrix), path(idats), path(egt), path(bpm)
 
     output:
-    tuple path(egt), path(bpm), path("*.gtc")
+    path("*.gtc")
 
     script:
     """
@@ -116,21 +117,57 @@ process GTC {
 
 // preprocess FASTA
 process FASTA {
-  tag "${fasta_gz.baseName}"
+  tag "${fasta.baseName}"
 
   cpus = 1
   memory = 1.Gb
 
   input:
-  path(fasta_gz)
+  path(fasta)
 
   output:
-  tuple path("*.{fasta,fna}"), path("*.{amb,ann,fai,pac}")
+  tuple path(fasta, includeInputs: true), path("*.{amb,ann,fai,pac}")
 
   script:
   """
-  gunzip -c ${fasta_gz} > ${fasta_gz.baseName}
-  samtools faidx ${fasta_gz.baseName}
-  bwa index ${fasta_gz.baseName}
+  samtools faidx ${fasta}
+  bwa index ${fasta}
+  """
+}
+
+// convert to vcf
+process VCF {
+  tag "${fasta.baseName}"
+
+  publishDir "data/vcf/${dataset}/${fasta.baseName}"
+
+  cpus = 8
+  memory = 24.Gb
+
+  input:
+  tuple val(dataset), path(gtc), path(egt), path(bpm), path(csv), path(fasta), path(index)
+
+  output:
+  path("*.bcf")
+
+  script:
+  """
+  bcftools +gtc2vcf \
+  --no-version -Ou \
+  --bpm ${bpm} \
+  --csv ${csv} \
+  --egt ${egt} \
+  --gtcs . \
+  --fasta-ref ${fasta} \
+  --extra ${dataset}.tsv \ | \
+  bcftools sort -Ou -T ./bcftools. | \
+  bcftools norm \
+  --no-version \
+  --output ${dataset}.bcf \
+  --output-type b \
+  --check-ref x \
+  --fasta-ref ${fasta} \
+  --write-index \
+  --threads ${task.cpus}
   """
 }
