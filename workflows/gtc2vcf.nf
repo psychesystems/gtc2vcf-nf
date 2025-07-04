@@ -15,13 +15,22 @@ workflow {
 
     
     if(params.command == "identify") {
-        IDAT_CH = Channel.fromFilePairs(params.idats) { file -> file.simpleName.split("_")[0,1] }
+        IDAT_CH = Channel.fromFilePairs(params.idats, size: 2) { file -> file.simpleName.split("_")[0,1] }
 
-        ID_CH = IDENTIFY(IDAT_CH)
+        IDAT_CH = IDENTIFY(IDAT_CH)
         
-        ID_CH
+        // parse TSV and align with each idat
+
+        IDAT_CHIP_CH = IDAT_CH
           .splitCsv( header: true, sep: "\t")
-          .map {it -> [it[0], it[1].chip_type_guess] }
+            .transpose(by: 1)
+            .filter { it -> it[1].name == it[2].idat }
+
+        // publish files to subdirectory based on chip    
+        IDAT(IDAT_CHIP_CH)
+        
+        IDAT_CHIP_CH
+          .map {it -> [it[0], it[2].chip_type_guess] }
           .groupTuple()
           .map { it -> [it[1], it[0]] }
           .groupTuple()
@@ -34,7 +43,7 @@ workflow {
         EGT_CH = Channel.fromPath(params.egt, checkIfExists: true)
         BPM_CH = Channel.fromPath(params.bpm, checkIfExists: true)
 
-        IDAT_CH = Channel.fromFilePairs(params.idats) { file -> file.simpleName.split("_")[0,1] }
+        IDAT_CH = Channel.fromFilePairs(params.idats, size: 2) { file -> file.simpleName.split("_")[0,1] }
 
         IDAT_MANIFEST_CH = IDAT_CH
           .combine(EGT_CH)
@@ -72,6 +81,7 @@ workflow {
     }
 }
 
+// identify IDAT chips
 process IDENTIFY {
     tag "${sentrix[0]}_${sentrix[1]}"
 
@@ -82,7 +92,7 @@ process IDENTIFY {
     tuple val(sentrix), path(idats)
 
     output:
-    tuple val(sentrix), path("${sentrix.join('_')}.tsv")
+    tuple val(sentrix), path(idats, includeInputs: true), path("${sentrix.join('_')}.tsv")
 
     script:
     """
@@ -91,10 +101,32 @@ process IDENTIFY {
     """
 }
 
+// publish IDATs based on chip
+process IDAT {
+  tag "${sentrix[0]}_${sentrix[1]}"
+
+  publishDir "data/processed/idats/${identity.chip_type_guess}"
+
+  executor 'local'
+
+  cpus = 1
+  memory = 1.Gb
+
+  input:
+  tuple val(sentrix), path(idat), val(identity)
+
+  output:
+  path(idat, includeInputs: true)
+
+  script:
+  """
+  """
+}
+
 // idat2gtc
 process GTC {
 
-    publishDir "data/gtc/${bpm.simpleName}"
+    publishDir "data/processed/gtc/${bpm.simpleName}"
 
     cpus = 1
     memory = 1.Gb
@@ -139,7 +171,7 @@ process FASTA {
 process VCF {
   tag "${fasta.baseName}"
 
-  publishDir "data/vcf/${dataset}/${fasta.baseName}"
+  publishDir "data/processed/vcf/${dataset}/${fasta.baseName}"
 
   cpus = 8
   memory = 24.Gb
@@ -148,7 +180,7 @@ process VCF {
   tuple val(dataset), path(gtc), path(egt), path(bpm), path(csv), path(fasta), path(index)
 
   output:
-  path("*.bcf")
+  tuple path("*.bcf"), path("*.tsv")
 
   script:
   """
@@ -159,7 +191,7 @@ process VCF {
   --egt ${egt} \
   --gtcs . \
   --fasta-ref ${fasta} \
-  --extra ${dataset}.tsv \ | \
+  --extra ${dataset}.tsv | \
   bcftools sort -Ou -T ./bcftools. | \
   bcftools norm \
   --no-version \

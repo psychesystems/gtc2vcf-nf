@@ -4,10 +4,18 @@ Nextflow workflow for running [gtc2vcf](https://github.com/freeseek/gtc2vcf).
 
 ## Example run
 
+Specify work directory
+```sh
+WORK=work
+```
+
 ### Identify chip
 
 ```sh
-nextflow run workflows/gtc2vcf.nf -resume -qs 8 --command identify --idats "data/idats/*.idat"
+nextflow run workflows/gtc2vcf.nf -resume -qs 8 \
+-work-dir $WORK \
+--command identify \
+--idats "data/raw/idats/*.idat"
 ```
 ```sh
 Chip type guess (G/R): [GSA-MD-48v4-0_20098041, GSA-MD-48v4-0_20098041] Count: 576
@@ -16,20 +24,21 @@ Chip type guess (G/R): [GSA-MD-48v4-0_20098041, GSA-MD-48v4-0_20098041] Count: 5
 Download manifest for chip:
 
 ```sh
-mkdir data/manifest
+mkdir data/reference/manifest
 wget -P data/manifest "https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/InfiniumGlobalScreeningArrayv4.0ClusterFile-egt.zip" 
-unzip data/manifest/InfiniumGlobalScreeningArrayv4.0ClusterFile-egt.zip -d data/manifest
-wget -P data/manifest https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/GSA-48v4-0_20085471_D2.bpm
-wget -P data/manifest https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/GSA-48v4-0_20085471_D2.csv
+unzip data/manifest/InfiniumGlobalScreeningArrayv4.0ClusterFile-egt.zip -d data/reference/manifest
+wget -P data/reference/manifest https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/GSA-48v4-0_20085471_D2.bpm
+wget -P data/reference/manifest https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/GSA-48v4-0_20085471_D2.csv
 ```
 
 ### Convert to GTC
 
 ```sh
 nextflow run workflows/gtc2vcf.nf -resume -qs 8 --command gtc \
---idats "data/idats/*.idat" \
---egt data/manifest/GSA-48v4-0_20085471_D2_ClusterFile.egt \
---bpm data/manifest/GSA-48v4-0_20085471_D2.bpm
+-work-dir $WORK \
+--idats "data/processed/idats/GSA-MD-48v4-0_20098041/*.idat" \
+--egt data/reference/manifest/GSA-48v4-0_20085471_D2_ClusterFile.egt \
+--bpm data/reference/manifest/GSA-48v4-0_20085471_D2.bpm
 ```
 
 GTC files are written to `data/gtc/GSA-48v4-0_20085471_D2`.
@@ -46,10 +55,11 @@ gunzip data/fasta/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz
 
 Index the FASTA and convert GTCs to VCF
 ```sh
-nextflow run workflows/gtc2vcf.nf -resume -qs 8 --command vcf \
---gtc "data/gtc/GSA-48v4-0_20085471_D2/*.gtc" \
---egt data/manifest/GSA-48v4-0_20085471_D2_ClusterFile.egt \
---bpm data/manifest/GSA-48v4-0_20085471_D2.bpm \
---csv data/manifest/GSA-48v4-0_20085471_D2.csv \
---fasta data/fasta/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
+nextflow run workflows/gtc2vcf.nf -resume -qs 8 -work-dir $WORK \
+--command vcf \
+--gtc "data/processed/gtc/GSA-48v4-0_20085471_D2/*.gtc" \
+--egt data/reference/manifest/GSA-48v4-0_20085471_D2_ClusterFile.egt \
+--bpm data/reference/manifest/GSA-48v4-0_20085471_D2.bpm \
+--csv data/reference/manifest/GSA-48v4-0_20085471_D2.csv \
+--fasta data/reference/fasta/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 --
