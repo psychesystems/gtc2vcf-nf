@@ -6,6 +6,8 @@ params.idats = "data/idats/*.idat"
 params.egt = "https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/InfiniumGlobalScreeningArrayv4.0ClusterFile-egt.zip"
 params.bpm = "https://emea.support.illumina.com/content/dam/illumina-support/documents/documentation/chemistry_documentation/infinium_assays/infinium-gsa-with-gcra/GSA-48v4-0_20085471_D2.bpm"
 
+params.gtc = "data/gtc/*.gtc"
+params.fasta = "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz"
 
 workflow {
     if(params.command == "identify") {
@@ -36,6 +38,18 @@ workflow {
 
         GTC_CH = GTC(IDAT_MANIFEST_CH)
         
+    }
+
+    if(params.command == "vcf") {
+
+      GTC_CH = Channel.fromPath(params.gtc)
+
+      FASTA_GZ_CH = Channel.fromPath(params.fasta)
+
+      FASTA_CH = FASTA(FASTA_GZ_CH)
+        .view()
+
+
     }
 }
 
@@ -79,6 +93,8 @@ process EGT {
 // idat2gtc
 process GTC {
 
+    publishDir "data/gtc"
+
     cpus = 1
     memory = 1.Gb
 
@@ -96,4 +112,25 @@ process GTC {
       --idats . \
       --output .
     """
+}
+
+// preprocess FASTA
+process FASTA {
+  tag "${fasta_gz.baseName}"
+
+  cpus = 1
+  memory = 1.Gb
+
+  input:
+  path(fasta_gz)
+
+  output:
+  tuple path("*.{fasta,fna}"), path("*.{amb,ann,fai,pac}")
+
+  script:
+  """
+  gunzip -c ${fasta_gz} > ${fasta_gz.baseName}
+  samtools faidx ${fasta_gz.baseName}
+  bwa index ${fasta_gz.baseName}
+  """
 }
